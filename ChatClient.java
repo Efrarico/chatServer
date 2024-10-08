@@ -8,9 +8,6 @@ import javax.crypto.spec.SecretKeySpec;
 import javax.swing.*;
 
 public class ChatClient {
-
-
-    
     private String serverAddress = "localhost";
     private int serverPort = 1090;
     private Socket socket;
@@ -23,7 +20,7 @@ public class ChatClient {
 
     // Usuarios conectados al chat global
     private DefaultListModel<String> connectedUsersModel = new DefaultListModel<>();
-    
+
     private static final String ALGORITHM = "AES";
     private static final byte[] keyValue = "MySuperSecretKey".getBytes();  // Llave simétrica
 
@@ -82,7 +79,6 @@ public class ChatClient {
     private void setupUserListWindow() {
         JFrame userListWindow = new JFrame("Usuarios Conectados");
         userList = new JList<>(connectedUsersModel);
-        
         userListWindow.add(new JScrollPane(userList));
 
         userList.addMouseListener(new MouseAdapter() {
@@ -139,6 +135,12 @@ public class ChatClient {
                         } catch (Exception ex) {
                             ex.printStackTrace();
                         }
+                    } else if (message.startsWith("PRIVATE_FILE:")) {
+                        String[] parts = message.split(":", 4);
+                        String sender = parts[1];
+                        String fileName = parts[2];
+                        long fileSize = Long.parseLong(parts[3]);
+                        receiveFile(sender, fileName, fileSize);
                     } else if (message.startsWith("USERLIST:")) {
                         updateConnectedUsersList(message.substring(9).split(","));
                     }
@@ -148,6 +150,7 @@ public class ChatClient {
             }
         }
     }
+    
 
     private void updateConnectedUsersList(String[] users) {
         connectedUsersModel.clear();
@@ -177,12 +180,74 @@ public class ChatClient {
         return new String(decValue);
     }
 
+    // Enviar archivo a otro usuario
+    private void sendFileToUser(String recipient) {
+        JFileChooser fileChooser = new JFileChooser();
+        int result = fileChooser.showOpenDialog(null);
+        if (result == JFileChooser.APPROVE_OPTION) {
+            File selectedFile = fileChooser.getSelectedFile();
+            if (selectedFile.length() <= 50 * 1024 * 1024) {  // Limitar a 50 MB
+                try {
+                    out.println("PRIVATE_FILE:" + recipient + ":" + selectedFile.getName() + ":" + selectedFile.length());
+                    sendFile(selectedFile);
+                    privateChats.get(recipient).appendMessage("Has enviado el archivo: " + selectedFile.getName() + "\n");
+                } catch (Exception e) {
+                    e.printStackTrace();
+                }
+            } else {
+                JOptionPane.showMessageDialog(null, "El archivo es demasiado grande. Elige un archivo de hasta 50 MB.");
+            }
+        }
+    }
+
+    // Enviar archivo a través de la red
+    private void sendFile(File file) throws IOException {
+        BufferedInputStream fileIn = new BufferedInputStream(new FileInputStream(file));
+        OutputStream socketOut = socket.getOutputStream();
+        byte[] buffer = new byte[4096];
+        int bytesRead;
+        while ((bytesRead = fileIn.read(buffer)) != -1) {
+            socketOut.write(buffer, 0, bytesRead);
+        }
+        socketOut.flush();
+        fileIn.close();
+    }
+
+    // Recibir archivo desde otro usuario
+    private void receiveFile(String sender, String fileName, long fileSize) {
+        try {
+            JFileChooser fileChooser = new JFileChooser();
+            fileChooser.setSelectedFile(new File(fileName));
+            int result = fileChooser.showSaveDialog(null);
+            if (result == JFileChooser.APPROVE_OPTION) {
+                File fileToSave = fileChooser.getSelectedFile();
+                BufferedOutputStream fileOut = new BufferedOutputStream(new FileOutputStream(fileToSave));
+                InputStream socketIn = socket.getInputStream();
+                byte[] buffer = new byte[4096];
+                int bytesRead;
+                long remaining = fileSize;
+
+                while (remaining > 0 && (bytesRead = socketIn.read(buffer, 0, (int) Math.min(buffer.length, remaining))) != -1) {
+                    fileOut.write(buffer, 0, bytesRead);
+                    remaining -= bytesRead;
+                }
+
+                fileOut.flush();
+                fileOut.close();
+                privateChats.get(sender).appendMessage("Has recibido el archivo: " + fileName + "\n");
+            }
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+    }
+
     // Ventana de chat privado
     private class PrivateChatWindow {
         private String recipient;
         private JFrame privateChatWindow;
         private JTextArea privateChatArea;
         private JTextField messageField;
+        private JButton sendFileButton;
 
         public PrivateChatWindow(String recipient) {
             this.recipient = recipient;
@@ -191,6 +256,7 @@ public class ChatClient {
             privateChatArea.setEditable(false);
             messageField = new JTextField(40);
             JButton sendButton = new JButton("Enviar");
+            sendFileButton = new JButton("Enviar Archivo");
 
             sendButton.addActionListener(e -> {
                 String message = messageField.getText();
@@ -204,11 +270,14 @@ public class ChatClient {
                 }
             });
 
+            sendFileButton.addActionListener(e -> sendFileToUser(recipient));
+
             privateChatWindow.setLayout(new BorderLayout());
             privateChatWindow.add(new JScrollPane(privateChatArea), BorderLayout.CENTER);
             JPanel inputPanel = new JPanel();
             inputPanel.add(messageField);
             inputPanel.add(sendButton);
+            inputPanel.add(sendFileButton);
             privateChatWindow.add(inputPanel, BorderLayout.SOUTH);
         }
 

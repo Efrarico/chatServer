@@ -3,36 +3,29 @@ import java.net.*;
 import java.util.*;
 
 public class ChatServer {
-    private static Set<String> userNames = new HashSet<>();
+
     private static Set<PrintWriter> clientWriters = new HashSet<>();
+    private static Set<String> userNames = new HashSet<>();
 
     public static void main(String[] args) throws Exception {
-        System.out.println("Servidor de chat iniciado...");
+        System.out.println("El servidor está ejecutándose...");
         ServerSocket listener = new ServerSocket(1090);
-
         try {
             while (true) {
-                new ClientHandler(listener.accept()).start();
+                new Handler(listener.accept()).start();
             }
         } finally {
             listener.close();
         }
     }
 
-    private void updateConnectedUsersList() {
-        String userList = "USERLIST:" + String.join(",", userNames);
-        for (PrintWriter writer : clientWriters) {
-            writer.println(userList);
-        }
-    }
-
-    private static class ClientHandler extends Thread {
+    private static class Handler extends Thread {
         private String userName;
         private Socket socket;
         private PrintWriter out;
         private BufferedReader in;
 
-        public ClientHandler(Socket socket) {
+        public Handler(Socket socket) {
             this.socket = socket;
         }
 
@@ -41,33 +34,51 @@ public class ChatServer {
                 in = new BufferedReader(new InputStreamReader(socket.getInputStream()));
                 out = new PrintWriter(socket.getOutputStream(), true);
 
-                // Obtener el nombre de usuario y agregarlo a la lista
+                // Pedir nombre de usuario
                 userName = in.readLine();
                 synchronized (userNames) {
+                    if (userName == null || userName.trim().isEmpty() || userNames.contains(userName)) {
+                        return;
+                    }
                     userNames.add(userName);
-                    notifyUsersList();  // Notificar a todos sobre la lista actualizada
                 }
 
-                // Escuchar mensajes
+                // Agregar el escritor de este cliente a la lista
+                synchronized (clientWriters) {
+                    clientWriters.add(out);
+                }
+
+                // Enviar la lista actualizada de usuarios a todos
+                broadcastUserList();
+
+                // Escuchar mensajes del cliente
                 String message;
                 while ((message = in.readLine()) != null) {
-                    if (message.startsWith("PRIVATE:")) {
-                        // Lógica de mensajes privados
-                    } else {
-                        // Mensajes globales
-                        for (PrintWriter writer : clientWriters) {
-                            writer.println("GLOBAL:" + userName + ": " + message);
-                        }
+                    if (message.startsWith("GLOBAL:")) {
+                        broadcastMessage("GLOBAL:" + userName + ": " + message.substring(7));
+                    } else if (message.startsWith("PRIVATE:")) {
+                        // Procesar mensaje privado
+                        String[] parts = message.split(":", 3);
+                        String recipient = parts[1];
+                        String encryptedMessage = parts[2];
+                        sendPrivateMessage(recipient, "PRIVATE:" + userName + ":" + encryptedMessage);
+                    } else if (message.startsWith("PRIVATE_FILE:")) {
+                        String[] parts = message.split(":", 4);
+                        String recipient = parts[1];
+                        String fileName = parts[2];
+                        String fileSize = parts[3];
+                        sendPrivateMessage(recipient, "PRIVATE_FILE:" + userName + ":" + fileName + ":" + fileSize);
                     }
                 }
             } catch (IOException e) {
-                System.out.println("Error en la conexión con el usuario.");
+                e.printStackTrace();
             } finally {
                 if (userName != null) {
-                    synchronized (userNames) {
-                        userNames.remove(userName);
-                        notifyUsersList();  // Actualizar la lista de usuarios al desconectar
-                    }
+                    userNames.remove(userName);
+                    broadcastUserList();
+                }
+                if (out != null) {
+                    clientWriters.remove(out);
                 }
                 try {
                     socket.close();
@@ -76,10 +87,29 @@ public class ChatServer {
             }
         }
 
-        private void notifyUsersList() {
-            String usersList = "USERS:" + String.join(",", userNames);
-            for (PrintWriter writer : clientWriters) {
-                writer.println(usersList);
+        private void sendPrivateMessage(String recipient, String message) {
+            synchronized (clientWriters) {
+                for (PrintWriter writer : clientWriters) {
+                    writer.println(message);
+                }
+            }
+        }
+
+        private void broadcastMessage(String message) {
+            synchronized (clientWriters) {
+                for (PrintWriter writer : clientWriters) {
+                    writer.println(message);
+                }
+            }
+        }
+
+        // Método para enviar la lista de usuarios conectados a todos los clientes
+        private void broadcastUserList() {
+            String userListMessage = "USERLIST:" + String.join(",", userNames);
+            synchronized (clientWriters) {
+                for (PrintWriter writer : clientWriters) {
+                    writer.println(userListMessage);
+                }
             }
         }
     }
