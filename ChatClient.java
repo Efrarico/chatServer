@@ -209,7 +209,7 @@ public class ChatClient {
         }
     }
 
-// Enviar archivo a través de la red
+    // Enviar archivo a través de la red
 private void sendFile(File file) throws IOException {
     byte[] buffer = new byte[8192];  // Usamos un buffer de 8KB para optimizar la transferencia
     long totalBytesSent = 0;
@@ -238,57 +238,40 @@ private void sendFile(File file) throws IOException {
 }
 
 
-
-// Recibir archivo desde otro usuario
-private void receiveFile(String sender, String fileName, long fileSize) {
-    // Crear directorio 'downloads' si no existe
-    File downloadsDir = new File("downloads");
-    if (!downloadsDir.exists()) {
-        downloadsDir.mkdir();
-    }
-
-    // Buffer de 64 KB para mejorar la velocidad de transferencia
-    byte[] buffer = new byte[65536];
-    long totalBytesReceived = 0;
-
-    try (BufferedOutputStream fileOut = new BufferedOutputStream(new FileOutputStream("downloads/" + fileName));
-         DataInputStream dataIn = new DataInputStream(socket.getInputStream())) {
-        int bytesRead;
-        while (totalBytesReceived < fileSize && (bytesRead = dataIn.read(buffer, 0, (int) Math.min(buffer.length, fileSize - totalBytesReceived))) > 0) {
-            fileOut.write(buffer, 0, bytesRead);
-            totalBytesReceived += bytesRead;
-
-            // Mostrar progreso de recepción en consola (opcional)
-            System.out.println("Progreso de recepción: " + (100 * totalBytesReceived / fileSize) + "%");
-        }
-        fileOut.flush();
-        System.out.println("Archivo recibido completamente: " + fileName);
-
-        // Mostrar el archivo recibido en el chat con un botón para abrirlo
-        JButton openFileButton = new JButton("Abrir archivo: " + fileName);
-        openFileButton.addActionListener(e -> {
-            try {
-                Desktop.getDesktop().open(new File("downloads/" + fileName));
-            } catch (IOException ex) {
-                ex.printStackTrace();
+    // Método para recibir un archivo
+    private void receiveFile(String sender, String fileName, long fileSize) {
+        // Incrementar el tamaño del buffer a 64KB
+        byte[] buffer = new byte[65536];  // 64 KB buffer
+        
+        try (BufferedOutputStream fileOut = new BufferedOutputStream(new FileOutputStream("downloads/" + fileName)); // Inicializa el flujo de salida para guardar el archivo
+             DataInputStream dataIn = new DataInputStream(socket.getInputStream())) { // Inicializa el flujo de entrada de datos
+            long totalBytesRead = 0; // Total de bytes leídos
+            int bytesRead;
+            // Lee el archivo en bloques
+            while (totalBytesRead < fileSize && (bytesRead = dataIn.read(buffer)) > 0) {
+                fileOut.write(buffer, 0, bytesRead); // Escribe el buffer al flujo de salida
+                totalBytesRead += bytesRead; // Actualiza el total de bytes leídos
+                // Imprimir progreso de la recepción (opcional)
+                System.out.println("Progreso de recepción: " + (100 * totalBytesRead / fileSize) + "%"); // Muestra el progreso de la recepción
             }
-        });
-
-        // Verificar si la ventana de chat privado para el remitente existe
-        if (privateChats.containsKey(sender)) {
-            privateChats.get(sender).appendMessage("Has recibido el archivo: " + fileName + "\n");
-            privateChats.get(sender).addFileButton(openFileButton);  // Método para agregar el botón en la ventana
-        } else {
-            // Si no existe, se crea una nueva ventana de chat privado
-            openPrivateChatWindow(sender);
-            privateChats.get(sender).appendMessage("Has recibido el archivo: " + fileName + "\n");
-            privateChats.get(sender).addFileButton(openFileButton);
+            fileOut.flush(); // Asegura que todos los datos se guarden
+            System.out.println("Archivo recibido con éxito: " + fileName); // Mensaje de éxito
+            
+            // Mostrar el archivo recibido en el chat con un botón para abrirlo
+            JButton openFileButton = new JButton("Abrir archivo: " + fileName); // Botón para abrir el archivo
+            openFileButton.addActionListener(e -> { // Manejo de clic en el botón
+                try {
+                    Desktop.getDesktop().open(new File("downloads/" + fileName)); // Abre el archivo
+                } catch (IOException ex) {
+                    ex.printStackTrace(); // Manejo de excepciones
+                }
+            });
+            privateChats.get(sender).appendMessage("Has recibido el archivo: " + fileName + "\n"); // Muestra un mensaje en el chat privado
+            privateChats.get(sender).addFileButton(openFileButton); // Agrega el botón para abrir el archivo al chat privado
+        } catch (IOException e) {
+            e.printStackTrace(); // Manejo de excepciones
         }
-    } catch (IOException e) {
-        e.printStackTrace();
     }
-}
-
 
     // Clase de la ventana del chat privado
     private class PrivateChatWindow {
